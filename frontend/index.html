@@ -26,6 +26,7 @@
             --color-route: #56b6c2;
             --color-method: #abb2bf;
             --color-error: #e06c75;
+            --color-class: #e5c07b;
         }
 
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; background-color: var(--bg-color); color: var(--text-color); }
@@ -50,7 +51,7 @@
         #graph-container { flex-grow: 1; background-color: var(--bg-color); position: relative; }
         #cy { width: 100%; height: 100%; display: block; }
         
-        #details-panel { width: 280px; padding: 20px; border-left: 1px solid var(--border-color); background-color: var(--panel-bg); display: flex; flex-direction: column; z-index: 10; flex-shrink: 0; overflow-y: auto; }
+        #details-panel { width: 300px; padding: 20px; border-left: 1px solid var(--border-color); background-color: var(--panel-bg); display: flex; flex-direction: column; z-index: 10; flex-shrink: 0; overflow-y: auto; }
         #details-panel h2 { font-size: 1em; margin-top: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; color: #fff; text-transform: uppercase; letter-spacing: 1px; }
         .detail-item { margin-bottom: 15px; }
         .detail-label { font-weight: bold; font-size: 0.7em; color: #5c6370; text-transform: uppercase; margin-bottom: 4px; }
@@ -63,6 +64,7 @@
         .function-list li.type-function { border-left-color: var(--color-route); }
         .function-list li.type-controller { border-left-color: var(--color-controller); font-weight: bold; color: var(--color-controller); }
         .function-list li.type-model { border-left-color: var(--color-model); font-weight: bold; color: var(--color-model); }
+        .function-list li.type-class { border-left-color: var(--color-class); font-weight: bold; color: var(--color-class); }
         .function-list li.type-view { border-left-color: var(--color-view); color: var(--color-view); }
         .function-list li.type-folder { border-left-color: var(--color-folder); color: var(--color-folder); }
         .function-list li.type-category { border-left-color: var(--color-category); font-weight: bold; color: var(--color-category); }
@@ -159,6 +161,7 @@
                 { selector: 'node[type="project"]', style: { 'background-color': '#4b5263', 'color': '#fff', 'width': 80, 'height': 24 } },
                 { selector: 'node[type="controller"]', style: { 'border-color': '#61afef', 'color': '#61afef' } },
                 { selector: 'node[type="model"]', style: { 'border-color': '#c678dd', 'color': '#c678dd' } },
+                { selector: 'node[type="class"]', style: { 'border-color': '#e5c07b', 'color': '#e5c07b' } },
                 { selector: 'node[type="view"]', style: { 'border-color': '#98c379', 'color': '#98c379', 'shape': 'rectangle' } },
                 { selector: 'node[type="route"]', style: { 'border-color': '#56b6c2', 'shape': 'octagon', 'width': 70, 'height': 18, 'font-size': '7px' } },
                 { selector: 'node[type="method"]', style: { 'background-color': '#2c313a', 'border-width': 0, 'width': 70, 'height': 18, 'font-size': '7px' } },
@@ -188,28 +191,23 @@
             let html = `<div class="detail-item"><div class="detail-label">Name</div><div class="detail-value">${data.label}</div></div><div class="detail-item"><div class="detail-label">Type</div><div class="detail-value" style="color: var(--color-${data.type}); text-transform: uppercase; font-weight: bold; font-size: 0.8em;">${data.type}</div></div>`;
 
             if (fullGraphData) {
-                let items = [];
-                function findChildren(parentId) {
+                // Find all descendants recursively
+                function findAllDescendants(parentId) {
                     let direct = fullGraphData.nodes.filter(n => n.parent === parentId);
                     let all = [...direct];
                     direct.forEach(child => {
-                        if (child.type === 'folder' || child.type === 'file' || child.type === 'controller' || child.type === 'model') {
-                            all = all.concat(findChildren(child.id));
-                        }
+                        all = all.concat(findAllDescendants(child.id));
                     });
                     return all;
                 }
 
-                if (data.type === 'file' || data.type === 'folder' || data.type === 'category') {
-                    items = findChildren(data.id);
-                } else {
-                    items = fullGraphData.nodes.filter(n => n.parent === data.id);
-                }
-
-                const functionalItems = items.filter(n => ['method', 'function', 'route', 'controller', 'model', 'view'].includes(n.type));
+                let items = findAllDescendants(data.id);
+                
+                // Filter for "Functional" items for the list
+                const functionalItems = items.filter(n => ['method', 'function', 'route', 'controller', 'model', 'view', 'class'].includes(n.type));
 
                 if (functionalItems.length > 0) {
-                    html += `<div class="detail-item"><div class="detail-label">Functional Units (${functionalItems.length})</div><ul class="function-list">`;
+                    html += `<div class="detail-item"><div class="detail-label">Contains (${functionalItems.length})</div><ul class="function-list">`;
                     functionalItems.forEach(item => { 
                         let label = item.label;
                         if (item.type === 'method') {
@@ -243,7 +241,7 @@
             graphData.nodes.forEach(node => elements.push({ data: { id: node.id, label: node.label, type: node.type, parent: node.parent } }));
             graphData.edges.forEach(edge => elements.push({ data: { id: edge.id, source: edge.source, target: edge.target, label: edge.label } }));
             cy.add(elements);
-            runLayout('swimlanes'); // Default to swimlanes as per user request
+            runLayout('swimlanes');
         }
         
         function runLayout(layoutName = 'dagre') {
@@ -266,30 +264,21 @@
             layout.run();
         }
 
-        // Custom Swimlane Layout Logic
         function runSwimlaneLayout() {
             showMessage('Aligning layers...', 'info');
-            
             const categories = cy.nodes('[type="category"]');
             const projectNode = cy.nodes('[type="project"]');
-            
-            // Define Column Order
             const order = ['🕹️ CONTROLLERS', '📦 MODELS', '🖼️ VIEWS', '⚙️ CONFIG'];
             const columnWidth = 600;
             const startX = 0;
 
-            // 1. Position the Project Root at the top center
             projectNode.position({ x: (order.length * columnWidth) / 2, y: -200 });
 
-            // 2. Position Categories into Columns
             categories.forEach(cat => {
                 const label = cat.data('label');
                 const colIndex = order.indexOf(label);
                 const xPos = colIndex >= 0 ? startX + (colIndex * columnWidth) : startX + (order.length * columnWidth);
-                
                 cat.position({ x: xPos, y: 0 });
-                
-                // Run a localized layout for the children within this column
                 const children = cat.descendants();
                 if (children.length > 0) {
                     children.layout({
@@ -306,7 +295,6 @@
                     }).run();
                 }
             });
-
             cy.fit(null, 50);
             showMessage('Swimlane view ready.', 'success');
         }
