@@ -85,9 +85,9 @@
 
             <div class="control-group">
                 <label>View Presets</label>
-                <button id="layoutDagre" class="secondary-button">ARCHITECTURE (DAGRE)</button>
-                <button id="layoutBreadth" class="secondary-button">DEPENDENCY (BREADTH)</button>
-                <button id="layoutStar" class="secondary-button">HUB & SPOKE (STAR)</button>
+                <button id="layoutSwimlanes" class="secondary-button" style="background-color: var(--accent-color); color: #fff;">SWIMLANES (LAYERED)</button>
+                <button id="layoutDagre" class="secondary-button">ARCHITECTURE (TOP-DOWN)</button>
+                <button id="layoutStar" class="secondary-button">HUB & SPOKE (CIRCLE)</button>
                 <button id="layoutCose" class="secondary-button">ORGANIC (COSE)</button>
                 <button id="fitGraph" class="secondary-button">CENTER VIEW</button>
             </div>
@@ -243,10 +243,15 @@
             graphData.nodes.forEach(node => elements.push({ data: { id: node.id, label: node.label, type: node.type, parent: node.parent } }));
             graphData.edges.forEach(edge => elements.push({ data: { id: edge.id, source: edge.source, target: edge.target, label: edge.label } }));
             cy.add(elements);
-            runLayout('dagre');
+            runLayout('swimlanes'); // Default to swimlanes as per user request
         }
         
         function runLayout(layoutName = 'dagre') {
+            if (layoutName === 'swimlanes') {
+                runSwimlaneLayout();
+                return;
+            }
+
             let layoutOptions = { name: layoutName, animate: false, padding: 30, fit: true };
             if (layoutName === 'dagre') { 
                 layoutOptions.rankDir = 'TB'; 
@@ -259,6 +264,51 @@
             let layout = cy.layout(layoutOptions);
             layout.on('layoutstop', () => showMessage('Rendering complete.', 'success'));
             layout.run();
+        }
+
+        // Custom Swimlane Layout Logic
+        function runSwimlaneLayout() {
+            showMessage('Aligning layers...', 'info');
+            
+            const categories = cy.nodes('[type="category"]');
+            const projectNode = cy.nodes('[type="project"]');
+            
+            // Define Column Order
+            const order = ['🕹️ CONTROLLERS', '📦 MODELS', '🖼️ VIEWS', '⚙️ CONFIG'];
+            const columnWidth = 600;
+            const startX = 0;
+
+            // 1. Position the Project Root at the top center
+            projectNode.position({ x: (order.length * columnWidth) / 2, y: -200 });
+
+            // 2. Position Categories into Columns
+            categories.forEach(cat => {
+                const label = cat.data('label');
+                const colIndex = order.indexOf(label);
+                const xPos = colIndex >= 0 ? startX + (colIndex * columnWidth) : startX + (order.length * columnWidth);
+                
+                cat.position({ x: xPos, y: 0 });
+                
+                // Run a localized layout for the children within this column
+                const children = cat.descendants();
+                if (children.length > 0) {
+                    children.layout({
+                        name: 'dagre',
+                        rankDir: 'TB',
+                        nodeSep: 30,
+                        rankSep: 60,
+                        boundingBox: { 
+                            x1: xPos - (columnWidth/2) + 50, 
+                            y1: 100, 
+                            x2: xPos + (columnWidth/2) - 50, 
+                            y2: 5000 
+                        }
+                    }).run();
+                }
+            });
+
+            cy.fit(null, 50);
+            showMessage('Swimlane view ready.', 'success');
         }
 
         async function initData() {
@@ -294,8 +344,8 @@
             } catch (error) { showMessage(`Error: ${error.message}`, 'error'); }
         });
 
+        document.getElementById('layoutSwimlanes').addEventListener('click', () => runLayout('swimlanes'));
         document.getElementById('layoutDagre').addEventListener('click', () => runLayout('dagre'));
-        document.getElementById('layoutBreadth').addEventListener('click', () => runLayout('breadthfirst'));
         document.getElementById('layoutStar').addEventListener('click', () => runLayout('concentric'));
         document.getElementById('layoutCose').addEventListener('click', () => runLayout('cose'));
         document.getElementById('fitGraph').addEventListener('click', () => cy.fit(null, 30));
