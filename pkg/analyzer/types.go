@@ -18,4 +18,5 @@ type FileInfo struct {
 	IsRoute    bool
 	IsController bool
 	IsModel    bool
+	IsView     bool // Added IsView
 }

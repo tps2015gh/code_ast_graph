@@ -41,20 +41,40 @@ func PerformAnalysis(projectPath string) ([]graph.Node, []graph.Edge, error) {
 
 	for i, file := range files {
 		fileNodeID := fmt.Sprintf("file_%d", i)
-		fileName := filepath.Base(file)
-		graph.AddNode(&nodes, graph.Node{ID: fileNodeID, Label: fileName, Type: "file"})
-		graph.AddEdge(&edges, graph.Edge{Source: "project", Target: fileNodeID})
+		fileInfo := getFileInfo(file, projectPath, fileNodeID)
+		
+		// Create folder hierarchy with CI4 grouping
+		parentID := ensureFolderHierarchy(file, projectPath, &nodes, &edges)
+		if parentID == "" {
+			parentID = "project"
+		}
+
+		nodeType := "file"
+		if fileInfo.IsView {
+			nodeType = "view"
+		}
+
+		graph.AddNode(&nodes, graph.Node{
+			ID:       fileNodeID,
+			Label:    fileInfo.Name,
+			Type:     nodeType,
+			ParentID: parentID,
+		})
+		graph.AddEdge(&edges, graph.Edge{Source: parentID, Target: fileNodeID})
+
+		if fileInfo.IsView {
+			continue
+		}
 
 		astJSON, err := astparser.ExecutePhpParser(file)
 		if err != nil {
 			log.Printf("Non-fatal: Skipping %s due to parse error: %v", file, err)
 			errorNodeID := fmt.Sprintf("file_error_%d", i)
-			graph.AddNode(&nodes, graph.Node{ID: errorNodeID, Label: fmt.Sprintf("Syntax Error: %s", fileName), Type: "error", ParentID: fileNodeID})
+			graph.AddNode(&nodes, graph.Node{ID: errorNodeID, Label: "Syntax Error", Type: "error", ParentID: fileNodeID})
 			graph.AddEdge(&edges, graph.Edge{Source: fileNodeID, Target: errorNodeID, Label: "has_error"})
 			continue
 		}
 
-		// Handle flexible AST root
 		var statements []extractor.PhpAstNode
 		if err := json.Unmarshal(astJSON, &statements); err != nil {
 			var singleStmt extractor.PhpAstNode
@@ -65,21 +85,16 @@ func PerformAnalysis(projectPath string) ([]graph.Node, []graph.Edge, error) {
 			statements = []extractor.PhpAstNode{singleStmt}
 		}
 
-		// Process statements for the current file
 		for _, stmt := range statements {
 			if stmt == nil { continue }
-			
-			stmtType, ok := stmt["__type"].(string)
-			if !ok { continue }
-
+			stmtType, _ := stmt["__type"].(string)
 			switch stmtType {
 			case "Stmt_Class":
-				processClass(stmt, fileNodeID, fileName, &nodes, &edges)
+				processClass(stmt, fileNodeID, fileInfo.Name, &nodes, &edges)
 			case "Stmt_Function":
-				processGlobalFunction(stmt, fileNodeID, fileName, &nodes, &edges)
+				processGlobalFunction(stmt, fileNodeID, fileInfo.Name, &nodes, &edges)
 			case "Stmt_Expression":
-				// Check for $routes calls specifically in the routes file
-				if strings.HasSuffix(file, filepath.Join("Config", "Routes.php")) {
+				if fileInfo.IsRoute {
 					processRouteExpression(stmt, fileNodeID, &nodes, &edges)
 				}
 			}
@@ -87,6 +102,79 @@ func PerformAnalysis(projectPath string) ([]graph.Node, []graph.Edge, error) {
 	}
 
 	return nodes, edges, nil
+}
+
+// ensureFolderHierarchy creates compound nodes with special logic for CI4 structure
+func ensureFolderHierarchy(filePath, projectPath string, nodes *[]graph.Node, edges *[]graph.Edge) string {
+	relPath, _ := filepath.Rel(projectPath, filePath)
+	relPath = filepath.ToSlash(relPath)
+	dir := filepath.Dir(relPath)
+	
+	if dir == "." {
+		return "project"
+	}
+
+	parts := strings.Split(dir, "/")
+	currentParent := "project"
+	var currentPath string
+
+	for i, part := range parts {
+		if currentPath == "" {
+			currentPath = part
+		} else {
+			currentPath = currentPath + "/" + part
+		}
+		
+		folderID := "dir_" + strings.ReplaceAll(currentPath, "/", "_")
+		folderLabel := part
+		folderType := "folder"
+
+		// Detect Top-Level CI4 Groups for better UX
+		if i == 1 && parts[0] == "app" {
+			switch strings.ToLower(part) {
+			case "controllers":
+				folderLabel = "🕹️ CONTROLLERS"
+				folderType = "category"
+			case "models":
+				folderLabel = "📦 MODELS"
+				folderType = "category"
+			case "views":
+				folderLabel = "🖼️ VIEWS"
+				folderType = "category"
+			case "config":
+				folderLabel = "⚙️ CONFIG"
+				folderType = "category"
+			}
+		}
+
+		graph.AddNode(nodes, graph.Node{
+			ID:       folderID,
+			Label:    folderLabel,
+			Type:     folderType,
+			ParentID: currentParent,
+		})
+		currentParent = folderID
+	}
+
+	return currentParent
+}
+
+func getFileInfo(path, projectPath, nodeID string) FileInfo {
+	name := filepath.Base(path)
+	info := FileInfo{Path: path, Name: name, NodeID: nodeID}
+	relPath, _ := filepath.Rel(projectPath, path)
+	relPath = filepath.ToSlash(relPath)
+
+	if strings.HasSuffix(relPath, "Config/Routes.php") {
+		info.IsRoute = true
+	} else if strings.Contains(relPath, "app/Controllers") {
+		info.IsController = true
+	} else if strings.Contains(relPath, "app/Models") {
+		info.IsModel = true
+	} else if strings.Contains(relPath, "app/Views") {
+		info.IsView = true
+	}
+	return info
 }
 
 func processClass(stmt extractor.PhpAstNode, fileNodeID, fileName string, nodes *[]graph.Node, edges *[]graph.Edge) {
@@ -103,14 +191,13 @@ func processClass(stmt extractor.PhpAstNode, fileNodeID, fileName string, nodes 
 			} else if strings.Contains(parentClassFQN, `CodeIgniter\Model`) || strings.Contains(parentClassFQN, `BaseModel`) {
 				classType = "model"
 			}
-			externalClassID := "external_class_" + strings.ReplaceAll(parentClassFQN, "", "_")
+			externalClassID := "external_class_" + strings.ReplaceAll(parentClassFQN, "\\", "_")
 			graph.AddNode(nodes, graph.Node{ID: externalClassID, Label: security.PrivacyScrub(parentClassFQN), Type: "base_class"})
 			graph.AddEdge(edges, graph.Edge{Source: classID, Target: externalClassID, Label: "extends"})
 		}
 	}
 	
-	log.Printf("  [Found %s] %s (in %s)", strings.ToUpper(classType), className, fileName)
-
+	log.Printf("  [Found %s] %s", strings.ToUpper(classType), className)
 	graph.AddNode(nodes, graph.Node{ID: classID, Label: security.PrivacyScrub(className), Type: classType, ParentID: fileNodeID})
 	graph.AddEdge(edges, graph.Edge{Source: fileNodeID, Target: classID, Label: "defines"})
 
@@ -128,12 +215,8 @@ func processClass(stmt extractor.PhpAstNode, fileNodeID, fileName string, nodes 
 func processClassMethod(methodStmt extractor.PhpAstNode, className, classID string, nodes *[]graph.Node, edges *[]graph.Edge) {
 	methodName, ok := extractor.GetNameFromNode(methodStmt)
 	if !ok { return }
+	if flags, fOk := methodStmt["flags"].(float64); fOk && int(flags)&1 != 1 { return }
 
-	if flags, fOk := methodStmt["flags"].(float64); fOk && int(flags)&1 != 1 {
-		return // Not public
-	}
-
-	log.Printf("    -> Method: %s", methodName)
 	methodID := fmt.Sprintf("method_%s_%s", className, methodName)
 	graph.AddNode(nodes, graph.Node{ID: methodID, Label: security.PrivacyScrub(methodName), Type: "method", ParentID: classID})
 	graph.AddEdge(edges, graph.Edge{Source: classID, Target: methodID, Label: "has_method"})
@@ -143,8 +226,8 @@ func processClassMethod(methodStmt extractor.PhpAstNode, className, classID stri
 			if bodyAstNode, isBodyAst := mStmt.(extractor.PhpAstNode); isBodyAst {
 				viewCalls := extractor.ExtractViewCalls(bodyAstNode)
 				for _, viewName := range viewCalls {
-					viewID := fmt.Sprintf("view_%s", viewName)
-					graph.AddNode(nodes, graph.Node{ID: viewID, Label: security.PrivacyScrub(viewName), Type: "view"})
+					viewID := "view_ref_" + strings.ReplaceAll(viewName, "/", "_")
+					graph.AddNode(nodes, graph.Node{ID: viewID, Label: security.PrivacyScrub(viewName), Type: "view_ref"})
 					graph.AddEdge(edges, graph.Edge{Source: methodID, Target: viewID, Label: "renders"})
 				}
 				modelUsages := extractor.ExtractModelUsage(bodyAstNode)
@@ -161,8 +244,6 @@ func processClassMethod(methodStmt extractor.PhpAstNode, className, classID stri
 func processGlobalFunction(stmt extractor.PhpAstNode, fileNodeID, fileName string, nodes *[]graph.Node, edges *[]graph.Edge) {
 	funcName, ok := extractor.GetNameFromNode(stmt)
 	if !ok { return }
-
-	log.Printf("  [Found GLOBAL FUNC] %s (in %s)", funcName, fileName)
 	funcID := fmt.Sprintf("func_%s_%s", fileNodeID, funcName)
 	graph.AddNode(nodes, graph.Node{ID: funcID, Label: security.PrivacyScrub(funcName), Type: "function", ParentID: fileNodeID})
 	graph.AddEdge(edges, graph.Edge{Source: fileNodeID, Target: funcID, Label: "contains_func"})
@@ -196,20 +277,15 @@ func processRouteExpression(stmt extractor.PhpAstNode, fileNodeID string, nodes 
 
 func processRoute(method, pattern, handler, fileNodeID string, nodes *[]graph.Node, edges *[]graph.Edge) {
 	if !strings.Contains(handler, "::") { return }
-
 	parts := strings.Split(handler, "::")
 	if len(parts) != 2 { return }
-
 	controllerName, methodName := parts[0], parts[1]
 	routeID := fmt.Sprintf("route_%s_%s", method, strings.ReplaceAll(pattern, "/", "_"))
 	routeLabel := security.PrivacyScrub(fmt.Sprintf("%s %s", strings.ToUpper(method), pattern))
-	
 	graph.AddNode(nodes, graph.Node{ID: routeID, Label: routeLabel, Type: "route", ParentID: fileNodeID})
 	graph.AddEdge(edges, graph.Edge{Source: fileNodeID, Target: routeID, Label: "defines_route"})
-
 	controllerClassID := fmt.Sprintf("class_%s", controllerName)
 	controllerMethodID := fmt.Sprintf("method_%s_%s", controllerName, methodName)
-	
 	graph.AddNode(nodes, graph.Node{ID: controllerClassID, Label: security.PrivacyScrub(controllerName), Type: "controller"})
 	graph.AddNode(nodes, graph.Node{ID: controllerMethodID, Label: security.PrivacyScrub(methodName), Type: "method", ParentID: controllerClassID})
 	graph.AddEdge(edges, graph.Edge{Source: routeID, Target: controllerMethodID, Label: "calls"})
@@ -221,19 +297,13 @@ func walkProject(projectPath string) ([]string, error) {
 	if _, err := os.Stat(appPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("CodeIgniter 'app' directory not found at: %s", appPath)
 	}
-	
 	err := filepath.WalkDir(appPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
+		if err != nil { return err }
 		if !d.IsDir() && strings.HasSuffix(d.Name(), ".php") {
 			phpFiles = append(phpFiles, path)
 		}
 		return nil
 	})
-
-	if err != nil {
-		return nil, fmt.Errorf("error walking project directory %s: %w", projectPath, err)
-	}
+	if err != nil { return nil, fmt.Errorf("error walking project directory %s: %w", projectPath, err) }
 	return phpFiles, nil
 }
