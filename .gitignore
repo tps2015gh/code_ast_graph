@@ -1,0 +1,25 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+ci4-visualizer
+
+# Dependencies
+parser/vendor/
+bin/
+pkg/astparser/temp/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Analysis Artifacts
+*.ast.json
+temp/
+ci4-parser-*
