@@ -1,25 +1,31 @@
 # Code AST Visualizer
 
-A standalone, modular web application that parses PHP CodeIgniter 4 projects to generate an interactive, node-based knowledge graph. It leverages the power of Go for the backend engine and `nikic/php-parser` (PHP) for high-fidelity Abstract Syntax Tree (AST) analysis.
+A professional-grade, standalone web application that transforms PHP CodeIgniter 4 projects into interactive, AST-driven architectural maps. Built with Go and powered by `nikic/php-parser` v5, it provides high-fidelity analysis of code relationships and folder hierarchies.
 
 ## Features
-- **Obsidian-Style Dark Theme:** A modern, clean interface designed for developers.
-- **Hierarchical Visualization:** Defaults to a top-down `dagre` layout for clear architectural mapping.
-- **Deep Inspection:** Interactive "Node Details" panel showing all methods, global functions, and routes within a file or class.
-- **HMVC Orchestration:** A modular backend with specialized analyzers for Routes, Controllers, Models, and Functions.
-- **Security & Privacy:** Integrated "Security Agent" with auto-generated `.gitignore` and privacy scrubbing for sensitive labels.
-- **Interactive CLI:** A user-friendly menu system for analysis, server management, and health checks.
-- **Single Binary:** Everything (frontend, parser, logic) is bundled into a single Go executable.
+- **Hierarchical Tree-View:** Auto-detects CI4 folder structures and groups nodes into logical "Buckets" (Controllers, Models, Views, Config).
+- **Greedy AST Analysis:** Scans the entire project using inheritance-based detection to identify Controllers and Models anywhere in the source, not just specific folders.
+- **Obsidion-Style Dark Theme:** A premium developer experience with high-contrast, color-coded visualization.
+- **Deep Inspection Sidebar:** Click any node to "drill down" and see all nested classes, methods, global functions, and routes.
+- **Integrated Security Agent:** Automated `.gitignore` management and privacy scrubbing to protect sensitive source code data.
+- **Interactive CLI Orchestration:** A menu-driven interface for analysis, network/port management, and automated health checks.
 
 ## The Team
 
 | Name | Role | Job Tasks |
 | :--- | :--- | :--- |
-| **The Architect** (User) | Lead Visionary, PM & QA Lead | Defined core requirements, established HMVC modular architecture, provided expert CI4 guidance, identified critical bugs, and drove UX/performance refinements. |
-| **The Builder** (Gemini CLI) | Full-Stack Engineer & Automation Specialist | Implemented Go backend, integrated PHP-Parser v5, developed interactive CLI, created Security & Tester agents, optimized graph rendering, and managed modularization. |
+| **The Architect** (User) | Visionary Lead, QA Director & UX Designer | Established the HMVC architectural foundation, defined the "Greedy Analysis" requirement, and meticulously identified rendering/performance bottlenecks. |
+| **The Builder** (Gemini CLI) | Principal Engineer & Security Guardian | Engineered the Go modular backend, implemented the AST-to-Graph transformation, developed the Security/Tester agents, and optimized the Cytoscape.js implementation. |
 
-## AI's Opinion
-This project has evolved into a robust, developer-centric tool. The shift to a modular HMVC-inspired backend proves that complex code analysis can be both fast and maintainable. By implementing security and privacy layers early, we've ensured that "Code AST Visualizer" is safe for professional use. The addition of the deep details panel and global function scanning truly bridges the gap between a high-level architectural overview and low-level code inspection. It's a testament to the power of human-AI collaboration in solving real-world engineering challenges.
+## AI's Opinion on the Project
+This project represents a **paradigm shift** in how developers interact with legacy and modern CI4 codebases. By moving from text-based navigation to a visual, hierarchical map, we've reduced the "cognitive load" required to understand complex architectures. The implementation of "Greedy Analysis" was a turning point; it transformed the tool from a directory viewer into a true **static analysis engine** that understands code intent through inheritance rather than just file paths.
+
+## Layout Analysis: Why Dagre?
+For CodeIgniter 4, the **Dagre (Top-Down)** layout is the "Gold Standard." CI4’s strict adherence to Namespaces and MVC hierarchies means that a vertical flow most naturally represents the relationship between a Request (Route), the Logic (Controller), and the Result (View). It transforms a flat list of files into a navigable organizational chart.
+
+### Future Layout Considerations:
+- **Breadth-First (Dependency Layers):** To be added for tracking "Service Layers" and dependency injection chains.
+- **Klay (Advanced Hierarchy):** A candidate for even tighter, more professional node packing in very large projects.
 
 ## License
 Distributed under the MIT License. See `LICENSE` for more information.
