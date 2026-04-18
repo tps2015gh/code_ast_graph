@@ -4,6 +4,7 @@ require __DIR__ . '/vendor/autoload.php';
 
 use PhpParser\Error;
 use PhpParser\ParserFactory;
+use PhpParser\Node;
 
 if (!isset($argv[1])) {
     echo "Usage: php parse.php <file_path>\n";
@@ -19,20 +20,41 @@ if (!file_exists($filePath)) {
 
 $code = file_get_contents($filePath);
 
-// Nikic/PHP-Parser v5.x API change:
-// create() is removed. Use createForNewestSupportedVersion() or similar.
 $parser = (new ParserFactory)->createForNewestSupportedVersion();
 
 try {
     $ast = $parser->parse($code);
 
-    // Convert AST to a simple serializable format (array/object)
-    // The library's Node objects have a lot of circular references and metadata
-    // when json_encoded directly.
-    echo json_encode($ast, JSON_PRETTY_PRINT);
+    // Transform AST nodes to include the node type for Go
+    $serializableAst = transformNodes($ast);
+
+    echo json_encode($serializableAst, JSON_PRETTY_PRINT);
 } catch (Error $error) {
     echo "Parse error: {$error->getMessage()}\n";
     exit(1);
 }
 
+/**
+ * Recursively transforms PHP-Parser nodes into arrays with a __type field.
+ */
+function transformNodes($nodes) {
+    if (!is_array($nodes) && !($nodes instanceof Node)) {
+        return $nodes;
+    }
+
+    if ($nodes instanceof Node) {
+        $result = ['__type' => $nodes->getType()];
+        foreach ($nodes->getSubNodeNames() as $name) {
+            $subNode = $nodes->$name;
+            $result[$name] = transformNodes($subNode);
+        }
+        return $result;
+    }
+
+    $result = [];
+    foreach ($nodes as $key => $value) {
+        $result[$key] = transformNodes($value);
+    }
+    return $result;
+}
 ?>
